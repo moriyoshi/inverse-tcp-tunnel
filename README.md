@@ -53,24 +53,33 @@ The client program accepts these arguments:
 ```
 Usage of ./client:
   -downstream string
-        address to connect (downstream)
+    	address to connect (downstream)
   -loglevel string
-        loglevel (default "info")
+    	loglevel (default "info")
+  -proxy string
+    	proxy URL (e.g. socks5://localhost:1080)
   -upstream string
-        address to connect (upstream)
+    	address to connect (upstream)
 ```
 
 * `-downstream`
 
 	Specifies the remote address where the ITT server is listening (the counterpart should have been configured with `-tunnel`). Unix domain sockets can be specified by prefixing the path with `unix:`.
 
+* `-upstream`
+
+	Specifies the remote address of the service in question. Unix domain sockets can be specified by prefixing the path with `unix:`.
+
 * `-loglevel`
 
 	Specifies the log level.  The possible values are `fatal`, `error`, `warning`, `info`, `debug`, and `trace`.  Beware that setting this to `trace` will make the server to dump the raw network traffic.
 
-* `-upstream`
+* `-proxy`
 
-	Specifies the remote address of the service in question. Unix domain sockets can be specified by prefixing the path with `unix:`.
+    Specifies another proxy to establish the connection with. Currently the following are supported:
+    
+    * `socks5://` (actually this works in the same way as `socks5h://`...)
+    * `socks5h://`
 
 ## License
 

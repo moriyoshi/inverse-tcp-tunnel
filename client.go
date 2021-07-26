@@ -25,18 +25,21 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
+	"golang.org/x/net/proxy"
 )
 
 type ClientConfig struct {
-	Target1 string
-	Target2 string
-	Logger  zerolog.Logger
+	Target1  string
+	Target2  string
+	ProxyURL string
+	Logger   zerolog.Logger
 }
 
 type upstreamConn struct {
@@ -70,11 +73,14 @@ type Client struct {
 	gracefulShutdownChan chan struct{}
 }
 
-func doDial(ctx context.Context, dialer *net.Dialer, addrRepr string) (net.Conn, error) {
+func doDial(ctx context.Context, dialer proxy.ContextDialer, addrRepr string) (net.Conn, error) {
 	var af, addr string
 	if strings.HasPrefix(addrRepr, "unix:") {
 		af = "unix"
 		addr = addrRepr[5:]
+	} else if strings.HasPrefix(addrRepr, "tcp:") {
+		af = "tcp"
+		addr = addrRepr[4:]
 	} else {
 		af = "tcp"
 		addr = addrRepr
@@ -375,6 +381,22 @@ func (c *Client) Run(ctx context.Context) error {
 	return nil
 }
 
+func chooseDialer(defaultDialer, proxyDialer proxy.ContextDialer, target string) func(context.Context) (net.Conn, error) {
+	if strings.HasPrefix(target, "proxy:") {
+		target := target[6:]
+		return func(ctx context.Context) (net.Conn, error) {
+			if proxyDialer == nil {
+				return nil, fmt.Errorf("no proxy connection is configured for %s", target)
+			}
+			return doDial(ctx, proxyDialer, target)
+		}
+	} else {
+		return func(ctx context.Context) (net.Conn, error) {
+			return doDial(ctx, defaultDialer, target)
+		}
+	}
+}
+
 func NewClient(ctx context.Context, config ClientConfig) (*Client, error) {
 	var downstreamConn net.Conn
 	var err error
@@ -385,15 +407,28 @@ func NewClient(ctx context.Context, config ClientConfig) (*Client, error) {
 			}
 		}
 	}()
-	dialer := &net.Dialer{}
+	defaultDialer := &net.Dialer{}
+	var proxyDialer proxy.ContextDialer
+	if config.ProxyURL != "" {
+		proxyURL, err := url.Parse(config.ProxyURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse proxy url: %s: %w", config.ProxyURL, err)
+		}
+		_proxyDialer, err := proxy.FromURL(proxyURL, defaultDialer)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create a proxy dialer: %w", err)
+		}
+		var ok bool
+		proxyDialer, ok = _proxyDialer.(proxy.ContextDialer)
+		if !ok {
+			return nil, fmt.Errorf("proxy dialer does not implement ContextDialer")
+		}
+	}
+
 	return &Client{
-		reconnectionInterval: time.Second,
-		downstreamDialer: func(ctx context.Context) (net.Conn, error) {
-			return doDial(ctx, dialer, config.Target1)
-		},
-		upstreamDialer: func(ctx context.Context) (net.Conn, error) {
-			return doDial(ctx, dialer, config.Target2)
-		},
+		reconnectionInterval:  time.Second,
+		downstreamDialer:      chooseDialer(defaultDialer, proxyDialer, config.Target1),
+		upstreamDialer:        chooseDialer(defaultDialer, proxyDialer, config.Target2),
 		upstreamConns:         make(map[net.Conn]*upstreamConn),
 		upstreamConnsByDSAddr: make(map[addrKey]*upstreamConn),
 		packetChan:            make(chan clientPacket, 1),

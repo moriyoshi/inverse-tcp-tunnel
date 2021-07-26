@@ -45,6 +45,7 @@ func main() {
 	flag.StringVar(&config.Target1, "downstream", "", "address to connect (downstream)")
 	flag.StringVar(&config.Target2, "upstream", "", "address to connect (upstream)")
 	flag.StringVar(&logLevelStr, "loglevel", "info", "loglevel")
+	flag.StringVar(&config.ProxyURL, "proxy", "", "proxy URL (e.g. socks5://localhost:1080)")
 	flag.Parse()
 
 	logLevel, err := zerolog.ParseLevel(logLevelStr)
